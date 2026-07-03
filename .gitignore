@@ -1,3 +1,5 @@
+pretrained_models/
+
 # Hydra default log folder
 outputs/
 

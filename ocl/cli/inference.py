@@ -1,4 +1,5 @@
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -22,8 +23,6 @@ import cv2
 import textwrap
 
 
-from llm2vec import LLM2Vec
-
 logging.getLogger().setLevel(logging.INFO)
 
 
@@ -33,13 +32,64 @@ CHECKPOINTS = {
     "config": "pretrained_models/ctrlo/config.yaml",
 }
 
+TEXT_ENCODER_MODE = os.environ.get("CTRLO_TEXT_ENCODER", "llm2vec").lower()
+TEXT_EMBEDDING_DIM = 4096
 
-l2v = LLM2Vec.from_pretrained(
-    "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp",
-    peft_model_name_or_path="McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-unsup-simcse",
-    device_map="cuda" if torch.cuda.is_available() else "cpu",
-    torch_dtype=torch.bfloat16,
-)
+
+class DummyTextEncoder:
+    def __init__(self, embedding_dim=TEXT_EMBEDDING_DIM):
+        self.embedding_dim = embedding_dim
+
+    def encode(self, prompts):
+        return torch.stack([self._encode_prompt(prompt) for prompt in prompts])
+
+    def _encode_prompt(self, prompt):
+        if prompt == "other":
+            return torch.zeros(self.embedding_dim, dtype=torch.float32)
+
+        digest = hashlib.sha256(prompt.encode("utf-8")).digest()
+        seed = int.from_bytes(digest[:8], byteorder="little", signed=False)
+        generator = torch.Generator(device="cpu")
+        generator.manual_seed(seed)
+        embedding = torch.randn(
+            self.embedding_dim, generator=generator, dtype=torch.float32
+        )
+        return embedding / embedding.norm().clamp_min(1e-6)
+
+
+def build_text_encoder():
+    if TEXT_ENCODER_MODE in {"dummy", "smoke", "smoke_test"}:
+        logging.warning(
+            "Using deterministic dummy text embeddings. This is only a smoke test "
+            "and does not validate language-controlled behavior."
+        )
+        return DummyTextEncoder()
+
+    if TEXT_ENCODER_MODE not in {"llm2vec", ""}:
+        raise ValueError(
+            f"Unsupported CTRLO_TEXT_ENCODER={TEXT_ENCODER_MODE!r}. "
+            "Use 'llm2vec' or 'dummy'."
+        )
+
+    from llm2vec import LLM2Vec
+
+    base_model = os.environ.get(
+        "CTRLO_LLM2VEC_BASE", "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp"
+    )
+    peft_model = os.environ.get(
+        "CTRLO_LLM2VEC_PEFT",
+        "McGill-NLP/LLM2Vec-Meta-Llama-3-8B-Instruct-mntp-unsup-simcse",
+    )
+
+    return LLM2Vec.from_pretrained(
+        base_model,
+        peft_model_name_or_path=peft_model,
+        device_map="cuda" if torch.cuda.is_available() else "cpu",
+        torch_dtype=torch.bfloat16,
+    )
+
+
+l2v = build_text_encoder()
 
 
 def get_shard_pattern(path: str):
@@ -183,7 +233,10 @@ def visualize_features(outputs, prompts, images, device="cuda"):
             spine.set_linewidth(0.5)
 
     # Save the combined visualization
-    combined_image_path = "images/vg_demo.png"
+    combined_image_path = os.environ.get("CTRLO_OUTPUT_IMAGE", "images/vg_demo.png")
+    output_dir = os.path.dirname(combined_image_path)
+    if output_dir:
+        os.makedirs(output_dir, exist_ok=True)
     try:
         plt.savefig(combined_image_path, bbox_inches='tight', dpi=300, pad_inches=0, transparent=True)  # Adjust dpi to balance quality and file size
         logging.info(f"Combined visualization saved to {combined_image_path}")
