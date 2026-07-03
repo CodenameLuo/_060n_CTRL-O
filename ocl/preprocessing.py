@@ -97,16 +97,18 @@ class SelectConditioningInfo:
             self.num_slots >= valid_cnt
         ), f"num_slots {self.num_slots} should be greater than number of conditioning info {valid_cnt}"
         new_names = ["other" for i in range(self.num_slots)]
-        new_name_embedding = numpy.array([self.embeddings["other"] for i in range(self.num_slots)])
+        stored_other_embedding = numpy.asarray(self.embeddings["other"])
+        other_embedding = numpy.zeros(name_embedding.shape[1:], dtype=name_embedding_dtype)
+        if stored_other_embedding.shape == name_embedding.shape[1:]:
+            other_embedding = stored_other_embedding
+        new_name_embedding = numpy.array([other_embedding for i in range(self.num_slots)])
         new_category_idx = numpy.array(
             [self.key_to_idx[new_names[i]] for i in range(self.num_slots)]
         )
         new_selected_indices = numpy.array([-1 for i in range(self.num_slots)])
         new_bbox_centroids = numpy.array([[-1, -1] for i in range(self.num_slots)])
         new_contrastive_mask_loss = numpy.array([0 for i in range(self.num_slots)])
-        new_references_embedding = numpy.array(
-            [self.embeddings["other"] for i in range(self.num_slots)]
-        )
+        new_references_embedding = numpy.array([other_embedding for i in range(self.num_slots)])
         select_num_binds = random.randint(max(valid_cnt - 3, 1), valid_cnt)
         inds = random.sample(range(valid_cnt), select_num_binds)
 
@@ -267,7 +269,11 @@ class SelectConditioningInfoVG:
         binds = self.num_max_binds
         num_slots = self.num_slots
         new_names = ["other" for i in range(num_slots)]
-        new_name_embedding = numpy.array([self.embeddings["other"] for i in range(num_slots)])
+        stored_other_embedding = numpy.asarray(self.embeddings["other"])
+        other_embedding = numpy.zeros(name_embedding.shape[1:], dtype=name_embedding_dtype)
+        if stored_other_embedding.shape == name_embedding.shape[1:]:
+            other_embedding = stored_other_embedding
+        new_name_embedding = numpy.array([other_embedding for i in range(num_slots)])
         new_selected_indices = numpy.array([-1 for i in range(num_slots)])
         new_bbox_centroids = numpy.array([[-1, -1] for i in range(num_slots)])
         new_contrastive_mask_loss = numpy.array([0 for i in range(num_slots)])

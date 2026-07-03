@@ -1,0 +1,15 @@
+run: outputs/projects/prompting/vg/prompt_vg_small14_dinov2_mapping_lang_point_pred_sep_clip/2026-07-03_18-43-50_clip_layer2_tuned_5k_bs128_amp
+scalar_tags: 21
+train/loss_total: n=100 first=49:3.76250744 last=4999:1.98649454 bad=0
+train/mse: n=100 first=49:1.04431343 last=4999:0.48097917 bad=0
+train/contrastive_loss_lang: n=100 first=49:1.35757101 last=4999:0.40704566 bad=0
+train/contrastive_loss_point: n=100 first=49:1.36062300 last=4999:1.09846973 bad=0
+train/acc_avg: n=100 first=49:0.14153132 last=4999:0.87238979 bad=0
+val/loss_total: n=10 first=499:3.39235854 last=4999:2.43404174 bad=0
+val/mse: n=10 first=499:0.78172678 last=4999:0.61686498 bad=0
+val/binding_hits: n=10 first=499:0.20509803 last=4999:0.18627451 bad=0
+val/acc_avg: n=10 first=499:0.20196079 last=4999:0.93745100 bad=0
+val/instance_mbo: n=10 first=499:0.07644666 last=4999:0.13899834 bad=0
+val/gt_matched_instance_mbo: n=10 first=499:0.05958388 last=4999:0.12540787 bad=0
+val/instance_ari: n=10 first=499:0.02076351 last=4999:0.32615256 bad=0
+total_bad=0
