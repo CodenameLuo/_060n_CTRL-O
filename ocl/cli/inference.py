@@ -33,7 +33,7 @@ CHECKPOINTS = {
 }
 
 TEXT_ENCODER_MODE = os.environ.get("CTRLO_TEXT_ENCODER", "llm2vec").lower()
-TEXT_EMBEDDING_DIM = 4096
+TEXT_EMBEDDING_DIM = int(os.environ.get("CTRLO_TEXT_EMBEDDING_DIM", "4096"))
 
 
 class DummyTextEncoder:
@@ -57,6 +57,58 @@ class DummyTextEncoder:
         return embedding / embedding.norm().clamp_min(1e-6)
 
 
+class ProjectedCLIPTextEncoder:
+    def __init__(self, embedding_dim=TEXT_EMBEDDING_DIM):
+        from transformers import AutoTokenizer, CLIPTextModelWithProjection
+
+        self.embedding_dim = embedding_dim
+        self.model_name = os.environ.get("CTRLO_CLIP_MODEL", "openai/clip-vit-base-patch32")
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        self.projection_seed = int(os.environ.get("CTRLO_CLIP_PROJECTION_SEED", "0"))
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+        self.model = CLIPTextModelWithProjection.from_pretrained(self.model_name).to(
+            self.device
+        )
+        self.model.eval()
+        self._projection = None
+
+    @torch.no_grad()
+    def encode(self, prompts):
+        inputs = self.tokenizer(
+            prompts, padding=True, truncation=True, return_tensors="pt"
+        )
+        inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        embeddings = self.model(**inputs).text_embeds.float()
+        embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+
+        if embeddings.shape[-1] != self.embedding_dim:
+            embeddings = self._project_to_target_dim(embeddings)
+
+        valid_mask = torch.tensor(
+            [prompt != "other" for prompt in prompts],
+            dtype=embeddings.dtype,
+            device=embeddings.device,
+        ).unsqueeze(-1)
+        return embeddings * valid_mask
+
+    def _project_to_target_dim(self, embeddings):
+        input_dim = embeddings.shape[-1]
+        if self._projection is None or self._projection.shape[0] != input_dim:
+            generator = torch.Generator(device="cpu")
+            generator.manual_seed(self.projection_seed)
+            projection = torch.randn(
+                input_dim,
+                self.embedding_dim,
+                generator=generator,
+                dtype=torch.float32,
+            )
+            projection = projection / input_dim**0.5
+            self._projection = projection.to(embeddings.device)
+
+        embeddings = embeddings @ self._projection
+        return embeddings / embeddings.norm(dim=-1, keepdim=True).clamp_min(1e-6)
+
+
 def build_text_encoder():
     if TEXT_ENCODER_MODE in {"dummy", "smoke", "smoke_test"}:
         logging.warning(
@@ -65,10 +117,18 @@ def build_text_encoder():
         )
         return DummyTextEncoder()
 
+    if TEXT_ENCODER_MODE in {"clip", "clip_text"}:
+        logging.warning(
+            f"Using CLIP text embeddings projected to {TEXT_EMBEDDING_DIM} dimensions. This is an "
+            "experimental public-encoder path and is not equivalent to the "
+            "LLM2Vec/Llama embedding space used to train the checkpoint."
+        )
+        return ProjectedCLIPTextEncoder()
+
     if TEXT_ENCODER_MODE not in {"llm2vec", ""}:
         raise ValueError(
             f"Unsupported CTRLO_TEXT_ENCODER={TEXT_ENCODER_MODE!r}. "
-            "Use 'llm2vec' or 'dummy'."
+            "Use 'llm2vec', 'dummy', or 'clip'."
         )
 
     from llm2vec import LLM2Vec
