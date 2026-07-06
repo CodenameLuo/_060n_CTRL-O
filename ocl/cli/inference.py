@@ -28,8 +28,10 @@ logging.getLogger().setLevel(logging.INFO)
 
 # TODO: Use CVPR submission checkpoints --- these checkpoints are recent I suppose
 CHECKPOINTS = {
-    "checkpoint": "pretrained_models/ctrlo/pretrained_model.ckpt",
-    "config": "pretrained_models/ctrlo/config.yaml",
+    "checkpoint": os.environ.get(
+        "CTRLO_CHECKPOINT_PATH", "pretrained_models/ctrlo/pretrained_model.ckpt"
+    ),
+    "config": os.environ.get("CTRLO_CONFIG_PATH", "pretrained_models/ctrlo/config.yaml"),
 }
 
 TEXT_ENCODER_MODE = os.environ.get("CTRLO_TEXT_ENCODER", "llm2vec").lower()
@@ -65,6 +67,7 @@ class ProjectedCLIPTextEncoder:
         self.model_name = os.environ.get("CTRLO_CLIP_MODEL", "openai/clip-vit-base-patch32")
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.projection_seed = int(os.environ.get("CTRLO_CLIP_PROJECTION_SEED", "0"))
+        self.normalize = os.environ.get("CTRLO_CLIP_NORMALIZE", "auto").lower()
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
         self.model = CLIPTextModelWithProjection.from_pretrained(self.model_name).to(
             self.device
@@ -79,10 +82,13 @@ class ProjectedCLIPTextEncoder:
         )
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
         embeddings = self.model(**inputs).text_embeds.float()
-        embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True).clamp_min(1e-6)
 
         if embeddings.shape[-1] != self.embedding_dim:
+            if self.normalize in {"auto", "1", "true", "yes", "y"}:
+                embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True).clamp_min(1e-6)
             embeddings = self._project_to_target_dim(embeddings)
+        elif self.normalize in {"1", "true", "yes", "y"}:
+            embeddings = embeddings / embeddings.norm(dim=-1, keepdim=True).clamp_min(1e-6)
 
         valid_mask = torch.tensor(
             [prompt != "other" for prompt in prompts],

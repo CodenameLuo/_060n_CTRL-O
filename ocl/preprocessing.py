@@ -256,6 +256,9 @@ class SelectConditioningInfoVG:
 
         self.key_to_idx = {key: i for i, key in enumerate(self.embeddings.keys())}
 
+    def _select_indices(self, data: Dict[str, Any], valid_count: int, select_count: int) -> List[int]:
+        return random.sample(range(valid_count), select_count)
+
     def __call__(self, data: Dict[str, Any]):
         initial_num = len(data["name"])
         names = data["name"]
@@ -295,7 +298,7 @@ class SelectConditioningInfoVG:
                         break
                     valid_cnt = i + 1
                 initial_num = min(valid_cnt, initial_num)
-            inds = random.sample(range(initial_num), min(binds, initial_num))
+            inds = self._select_indices(data, initial_num, min(binds, initial_num))
            
             for j, i in enumerate(inds):
                 new_names[j] = names[i]
@@ -348,6 +351,138 @@ class SelectConditioningInfoVG:
         data["name_embedding"] = new_name_embedding.astype(name_embedding_dtype)
         
         return data
+
+
+class SelectConditioningInfoVGBiased(SelectConditioningInfoVG):
+    """Select VG conditioning while oversampling hard local phrases."""
+
+    TEXT_TERMS = {
+        "word",
+        "text",
+        "letter",
+        "letters",
+        "logo",
+        "sign",
+        "number",
+        "writing",
+        "label",
+        "flag",
+        "shirt",
+        "jersey",
+        "print",
+        "printed",
+        "advertising",
+    }
+    PART_TERMS = {
+        "hand",
+        "head",
+        "face",
+        "eye",
+        "eyes",
+        "leg",
+        "legs",
+        "arm",
+        "arms",
+        "wheel",
+        "window",
+        "door",
+        "handle",
+        "tail",
+        "branch",
+        "branches",
+        "leaf",
+        "leaves",
+        "hair",
+        "shoe",
+        "helmet",
+        "goggles",
+        "rail",
+    }
+
+    def __init__(
+        self,
+        num_max_binds: int = 3,
+        num_slots: int = 7,
+        small_area_threshold: float = 0.02,
+        min_hard_binds: int = 3,
+        small_weight: float = 6.0,
+        text_weight: float = 5.0,
+        part_weight: float = 4.0,
+    ):
+        super().__init__(num_max_binds=num_max_binds, num_slots=num_slots)
+        self.small_area_threshold = small_area_threshold
+        self.min_hard_binds = min_hard_binds
+        self.small_weight = small_weight
+        self.text_weight = text_weight
+        self.part_weight = part_weight
+
+    @staticmethod
+    def _phrase_has_term(phrase: str, terms: set[str]) -> bool:
+        normalized = phrase.lower().replace("-", " ")
+        tokens = {token.strip(".,;:!?()[]{}'\"") for token in normalized.split()}
+        return bool(tokens & terms)
+
+    @staticmethod
+    def _bbox_area_fraction(bbox: numpy.ndarray) -> float:
+        x1, y1, x2, y2 = [float(value) for value in bbox]
+        width = max(0.0, x2 - x1)
+        height = max(0.0, y2 - y1)
+        return (width * height) / (224.0 * 224.0)
+
+    def _score_index(self, data: Dict[str, Any], index: int) -> Tuple[float, bool]:
+        phrase = str(data["name"][index])
+        area_fraction = self._bbox_area_fraction(data["instance_bbox"][index])
+        is_small = 0.0 < area_fraction < self.small_area_threshold
+        is_text = self._phrase_has_term(phrase, self.TEXT_TERMS)
+        is_part = self._phrase_has_term(phrase, self.PART_TERMS)
+
+        score = 1.0
+        if is_small:
+            score += self.small_weight
+        if is_text:
+            score += self.text_weight
+        if is_part:
+            score += self.part_weight
+
+        return score, bool(is_small or is_text or is_part)
+
+    def _weighted_sample_without_replacement(
+        self, candidates: List[int], weights: List[float], count: int
+    ) -> List[int]:
+        selected = []
+        pool = list(candidates)
+        pool_weights = list(weights)
+        while pool and len(selected) < count:
+            chosen = random.choices(pool, weights=pool_weights, k=1)[0]
+            chosen_pos = pool.index(chosen)
+            selected.append(chosen)
+            del pool[chosen_pos]
+            del pool_weights[chosen_pos]
+        return selected
+
+    def _select_indices(self, data: Dict[str, Any], valid_count: int, select_count: int) -> List[int]:
+        candidates = list(range(valid_count))
+        scored = [(index, *self._score_index(data, index)) for index in candidates]
+        hard_candidates = [index for index, _, is_hard in scored if is_hard]
+
+        selected = []
+        if hard_candidates:
+            hard_scores = [score for index, score, _ in scored if index in hard_candidates]
+            hard_count = min(select_count, self.min_hard_binds, len(hard_candidates))
+            selected.extend(
+                self._weighted_sample_without_replacement(
+                    hard_candidates, hard_scores, hard_count
+                )
+            )
+
+        remaining = [index for index in candidates if index not in selected]
+        remaining_scores = [score for index, score, _ in scored if index in remaining]
+        selected.extend(
+            self._weighted_sample_without_replacement(
+                remaining, remaining_scores, select_count - len(selected)
+            )
+        )
+        return selected
 
 
 class AddEmptyMasksVG:

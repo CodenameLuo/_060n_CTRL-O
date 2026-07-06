@@ -1,0 +1,34 @@
+{
+  "overall": {
+    "n": 2550,
+    "soft_iou_mean": 0.03582749464777882,
+    "mass_in_gt_mean": 0.06026132720869951,
+    "gt_coverage_mean": 0.2042824197814799,
+    "peak_in_gt_rate": 0.09333333333333334,
+    "area_frac_mean": 0.04296163778011205
+  },
+  "part": {
+    "n": 389,
+    "soft_iou_mean": 0.027603181175502506,
+    "mass_in_gt_mean": 0.042117000817475804,
+    "gt_coverage_mean": 0.18640255997161378,
+    "peak_in_gt_rate": 0.06940874035989718,
+    "area_frac_mean": 0.027556727824484553
+  },
+  "small": {
+    "n": 1672,
+    "soft_iou_mean": 0.010408685659830918,
+    "mass_in_gt_mean": 0.011186612817580701,
+    "gt_coverage_mean": 0.1943315758600517,
+    "peak_in_gt_rate": 0.01854066985645933,
+    "area_frac_mean": 0.007659581335898593
+  },
+  "text": {
+    "n": 192,
+    "soft_iou_mean": 0.02645371347833131,
+    "mass_in_gt_mean": 0.03644818212168349,
+    "gt_coverage_mean": 0.22068541967540742,
+    "peak_in_gt_rate": 0.09375,
+    "area_frac_mean": 0.02599329526732568
+  }
+}

@@ -179,7 +179,7 @@ class ReconstructionLoss(nn.Module):
 class ControlMaskReconstructionLoss(nn.Module):
     def __init__(self, loss_type: str, weight: float = 1.0):
         super().__init__()
-        self.loss_fn = nn.BCELoss(reduction="none")
+        self.weight = weight
 
     def forward(
         self, input: torch.Tensor, target: torch.Tensor, control_mask: torch.Tensor
@@ -202,12 +202,13 @@ class ControlMaskReconstructionLoss(nn.Module):
 
         loss_mask = loss_mask.reshape(b, n)
 
-        if target.dtype != input.dtype:
-            target = target.to(input.dtype)
+        input = input.float().clamp(1e-6, 1 - 1e-6)
+        target = target.float()
 
-        loss = self.loss_fn(input, target)
+        with torch.cuda.amp.autocast(enabled=False):
+            loss = F.binary_cross_entropy(input, target, reduction="none")
 
-        return (loss * loss_mask.unsqueeze(-1).unsqueeze(-1)).mean()
+        return self.weight * (loss * loss_mask.unsqueeze(-1).unsqueeze(-1)).mean()
 
 
 class PointPredictionLoss(nn.Module):

@@ -1,0 +1,23 @@
+# @package _global_
+# CLIP VG config with hard-phrase biased training slot selection.
+defaults:
+  - /experiment/projects/prompting/vg/prompt_vg_small14_dinov2_mapping_lang_point_pred_sep_clip
+  - _self_
+
+dataset:
+  train_transforms:
+    03a_preprocessing:
+      transform:
+        _target_: torchvision.transforms.Compose
+        transforms:
+          - _target_: ocl.preprocessing.SelectConditioningInfoVGBiased
+            num_max_binds: ${experiment.num_slots}
+            num_slots: ${experiment.num_slots}
+            small_area_threshold: 0.02
+            min_hard_binds: 3
+            small_weight: 6.0
+            text_weight: 5.0
+            part_weight: 4.0
+          - _target_: ocl.preprocessing.CopyFields
+            mapping:
+              instance_mask: instance_mask_v2
